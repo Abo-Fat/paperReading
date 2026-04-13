@@ -136,6 +136,67 @@ def render_pages(
     }
 
 
+def extract_figures_fitz(
+    pdf_path: Path,
+    figures_dir: Path,
+    start_page: int,
+    end_page: int,
+) -> Dict[str, Any]:
+    """Extract individual figure images from PDF using pymupdf (fitz).
+
+    Each embedded raster image larger than 80×80 px is saved as a separate PNG.
+    Images smaller than that threshold are treated as decorations and skipped.
+
+    Returns a dict with keys:
+        extracted (bool), reason (str), figures_by_page (dict[str, list[str]])
+    """
+    try:
+        import fitz  # pymupdf
+    except Exception as exc:  # pragma: no cover - environment dependent
+        return {
+            "extracted": False,
+            "reason": f"pymupdf unavailable: {exc}",
+            "figures_by_page": {},
+        }
+
+    figures_dir.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open(str(pdf_path))
+    total_pages = len(doc)
+    start, end = normalize_page_range(total_pages, start_page, end_page)
+
+    figures_by_page: Dict[str, List[str]] = {}
+    for page_idx in range(start - 1, end):
+        page_num = page_idx + 1
+        page = doc[page_idx]
+        image_list = page.get_images(full=True)
+        page_figs: List[str] = []
+
+        for img_idx, img_info in enumerate(image_list):
+            xref = img_info[0]
+            try:
+                pix = fitz.Pixmap(doc, xref)
+                # Convert exotic colorspaces (CMYK, etc.) to RGB
+                if pix.colorspace and pix.n > 4:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                # Skip tiny images (logos, bullets, decorations)
+                if pix.width < 80 or pix.height < 80:
+                    continue
+                fig_path = figures_dir / f"fig_p{page_num:04d}_{img_idx:02d}.png"
+                pix.save(str(fig_path))
+                page_figs.append(str(fig_path.resolve()))
+            except Exception:
+                continue
+
+        if page_figs:
+            figures_by_page[str(page_num)] = page_figs
+
+    return {
+        "extracted": True,
+        "reason": "",
+        "figures_by_page": figures_by_page,
+    }
+
+
 def main() -> None:
     args = parse_args()
     pdf_path = Path(args.pdf).resolve()
@@ -174,6 +235,13 @@ def main() -> None:
         end_page=args.end_page,
     )
 
+    figure_result = extract_figures_fitz(
+        pdf_path=pdf_path,
+        figures_dir=out_dir / "rendered_pages" / "figures",
+        start_page=args.start_page,
+        end_page=args.end_page,
+    )
+
     manifest_path = out_dir / "extraction_manifest.json"
     with manifest_path.open("w", encoding="utf-8") as f:
         json.dump(
@@ -184,6 +252,9 @@ def main() -> None:
                 "render_reason": render_result["reason"],
                 "rendered_images": render_result["images"],
                 "first_page_title_authors": render_result["first_page_title_authors"],
+                "figures_extracted": figure_result["extracted"],
+                "figures_reason": figure_result["reason"],
+                "figures_by_page": figure_result["figures_by_page"],
             },
             f,
             ensure_ascii=False,
@@ -196,6 +267,11 @@ def main() -> None:
         print(f"[OK] rendered pages: {len(render_result['images'])}")
     else:
         print(f"[WARN] pages not rendered: {render_result['reason']}")
+    if figure_result["extracted"]:
+        total_figs = sum(len(v) for v in figure_result["figures_by_page"].values())
+        print(f"[OK] individual figures extracted: {total_figs} across {len(figure_result['figures_by_page'])} pages")
+    else:
+        print(f"[WARN] figures not extracted: {figure_result['reason']}")
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 面向 IC 设计/制造方向的**论文精读 PPT 自动生成工具**。
 
-读入论文 PDF，抽取文本与页面截图，再根据结构化 outline JSON 自动生成**白底、上文下图**固定版式的中文文献阅读报告 `.pptx`。
+读入论文 PDF，抽取文本与单独 Fig 图片，再根据结构化 outline JSON 自动生成**白底、上文下图**固定版式的中文文献阅读报告 `.pptx`。
 
 ---
 
@@ -11,13 +11,13 @@
 ```
 paperReading/
 ├── scripts/
-│   ├── extract_pdf_context.py   # 从 PDF 抽取文本与渲染图
+│   ├── extract_pdf_context.py      # 从 PDF 抽取文本、渲染图、单独 Fig
 │   └── build_paper_reading_ppt.py  # 依据 outline.json 生成 PPTX
 ├── references/
-│   └── outline_example.json    # outline.json 格式示例
+│   └── outline_example.json        # outline.json 格式示例
 ├── evals/
-│   └── evals.json              # 技能评估用例
-└── SKILL.md                    # Claude Code 技能描述文件
+│   └── evals.json                  # 技能评估用例
+└── SKILL.md                        # Claude Code 技能描述文件
 ```
 
 ---
@@ -25,15 +25,18 @@ paperReading/
 ## 环境依赖
 
 ```bash
-pip install pypdf pypdfium2 pillow python-pptx
+pip install pypdf pypdfium2 pymupdf pillow python-pptx
 ```
 
 | 包 | 用途 |
 |---|---|
 | `pypdf` | 提取 PDF 文本 |
-| `pypdfium2` | 将 PDF 页面渲染为 PNG |
+| `pypdfium2` | 将 PDF 页面渲染为整页 PNG |
+| `pymupdf` | 从 PDF 提取单独 Fig 图片（推荐安装）|
 | `pillow` | 图片裁剪与尺寸适配 |
 | `python-pptx` | 创建/修改 PPTX |
+
+> `pymupdf` 为可选但强烈推荐：安装后 PPT 配图将使用单独裁剪的 Fig，而非整页截图。
 
 ---
 
@@ -53,9 +56,19 @@ python paperReading/scripts/extract_pdf_context.py \
 | 文件 | 说明 |
 |---|---|
 | `text_by_page.json` | 逐页文本及图号引用列表 |
-| `rendered_pages/page_XXXX.png` | 每页渲染图 |
+| `rendered_pages/page_XXXX.png` | 每页整页渲染图（备用）|
 | `rendered_pages/first_page_title_authors.png` | 首页标题/作者区域截图（上 38%）|
-| `extraction_manifest.json` | 提取清单，记录所有产物路径 |
+| `rendered_pages/figures/fig_pXXXX_YY.png` | **单独 Fig 图片**（由 pymupdf 提取）|
+| `extraction_manifest.json` | 提取清单，含 `figures_by_page` 字段（页码 → Fig 路径列表）|
+
+`figures_by_page` 示例：
+
+```json
+{
+  "3": ["…/figures/fig_p0003_00.png", "…/figures/fig_p0003_01.png"],
+  "5": ["…/figures/fig_p0005_00.png"]
+}
+```
 
 可选参数：
 
@@ -68,7 +81,7 @@ python paperReading/scripts/extract_pdf_context.py \
 
 ### 第 2 步：编写 outline.json
 
-参考 [references/outline_example.json](references/outline_example.json)，按以下结构组织每张幻灯片：
+参考 [references/outline_example.json](references/outline_example.json)，每张幻灯片使用**四层次字段**：
 
 ```jsonc
 {
@@ -80,29 +93,44 @@ python paperReading/scripts/extract_pdf_context.py \
   "slides": [
     {
       "title": "整篇论文的核心 Motivation",
-      "text_lines": ["背景：...", "动机：...", "创新概览：..."],
-      "images": ["paper_assets/rendered_pages/first_page_title_authors.png"],
-      "figure_refs": ["Title + Authors"]
+      "motivation": "现有方法存在的核心痛点（贴合原文）",
+      "innovation": "本文提出的系统性解决方案概述",
+      "methods":    "主要技术路径/框架概述",
+      "results":    "核心量化结论（引用原文数值）",
+      "images":     ["paper_assets/rendered_pages/first_page_title_authors.png"],
+      "figure_refs":["Title + Authors"]
     },
     {
-      "title": "Motivation 1 -> Innovation 1",
-      "motivation": "痛点描述",
-      "innovation": "对应创新",
-      "text_lines": ["证据链：...", "图示说明：Fig. X ..."],
-      "images": ["paper_assets/rendered_pages/page_0003.png"],
-      "figure_refs": ["Fig. 3"]
+      "title": "Motivation 1 → Innovation 1：时序收敛",
+      "motivation": "传统方法布局后时序退化，迭代次数多。",
+      "innovation": "跨层协同建模 + 自适应约束更新机制。",
+      "methods":    "时序感知损失函数，联合优化关键路径与扇出。",
+      "results":    "后仿误差降低 42%，迭代轮数从 4.2 减至 1.8（Fig. 3）。",
+      "images":     ["paper_assets/rendered_pages/figures/fig_p0003_00.png"],
+      "figure_refs":["Fig. 3"]
     }
     // ... 更多 Motivation/Innovation 对 ...
-    // 倒数第二页：可能遗漏的小创新点
+    // 倒数第二页：可能遗漏的小创新点（可用 text_lines）
     // 最后一页：总结
   ]
 }
 ```
 
+**四层次字段说明：**
+
+| 字段 | PPT 标签颜色 | 内容要求 |
+|------|-------------|----------|
+| `motivation` | 深红 | 该页核心痛点/背景缺陷（1-2 句）|
+| `innovation` | 深蓝 | 对应创新方案核心思路（1-2 句）|
+| `methods` | 深绿 | 关键技术实现路径，含参数/流程要点（1-2 句）|
+| `results` | 紫色 | 量化结论/对比数据，引用原文数值（1-2 句）|
+
+> `text_lines` 字段仍受支持（向后兼容），当四个字段均缺失时作为 fallback 渲染。
+
 **幻灯片顺序规范：**
 
 1. 首页：整篇论文总 Motivation（配标题/作者截图）
-2. 每个 Motivation → Innovation 对独立一页
+2. 每个 Motivation → Innovation 对独立一页（配单独 Fig 图片）
 3. 可能遗漏的小创新点
 4. 总结页
 
@@ -142,16 +170,47 @@ python paperReading/scripts/build_paper_reading_ppt.py \
 所有页面统一采用：
 
 - 纯白背景
-- **上方约 1/3**：标题 + 文字区（Calibri，标题 30pt 加粗，正文 16pt）
+- **上方约 1/3**：标题（Calibri 20pt 加粗）+ 四层次文字区（标签 13pt 彩色加粗，内容 13pt 黑色）
 - **下方约 2/3**：配图区（最多 3 张并排，自动居中适配比例）
 
 每张图下方自动添加图号字幕（10pt 灰色居中）。
 
 ---
 
-## 与 Claude Code 技能集成
+## AI 编程助手集成
 
-本项目包含 [SKILL.md](SKILL.md)，可作为 Claude Code 自定义技能加载。  
+本项目包含 [SKILL.md](SKILL.md)，可将论文精读工作流注册为 AI 助手的自定义技能。  
 触发关键词：论文精读、文献阅读报告、Motivation/Innovation 分析、按 Fig 讲解、生成 .pptx 等。
 
-技能会引导 Claude 按照"提取 → outline → 生成 PPT"三步流程执行，并自动遵守内容约束与质量检查清单。
+### 安装方法
+
+**第 1 步：克隆仓库**
+
+```bash
+git clone https://github.com/<your-username>/<repo-name>.git
+```
+
+**第 2 步：将 SKILL.md 放到助手的技能目录**
+
+根据你使用的 AI 编程助手选择对应路径：
+
+| 助手 | 技能目录 |
+|---|---|
+| Claude Code | `~/.claude/skills/paper-reading/SKILL.md` |
+| OpenAI Codex CLI | `~/.codex/skills/paper-reading/SKILL.md` |
+
+```bash
+# Claude Code
+mkdir -p ~/.claude/skills/paper-reading
+cp <repo-name>/SKILL.md ~/.claude/skills/paper-reading/SKILL.md
+
+# OpenAI Codex CLI
+mkdir -p ~/.codex/skills/paper-reading
+cp <repo-name>/SKILL.md ~/.codex/skills/paper-reading/SKILL.md
+```
+
+**第 3 步：重启助手**，技能即生效。
+
+---
+
+安装完成后，技能会引导 AI 按照"提取 → outline → 生成 PPT"三步流程执行，并自动遵守内容约束与质量检查清单。

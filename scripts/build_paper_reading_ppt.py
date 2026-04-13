@@ -25,6 +25,23 @@ try:
 except Exception:  # pragma: no cover - optional dependency in runtime
     Image = None
 
+# ---------------------------------------------------------------------------
+# 4-level section structure
+# ---------------------------------------------------------------------------
+SECTION_ORDER = ["motivation", "innovation", "methods", "results"]
+SECTION_LABELS = {
+    "motivation": "Motivation",
+    "innovation": "Innovation",
+    "methods":    "Methods",
+    "results":    "Results",
+}
+SECTION_COLORS = {
+    "motivation": RGBColor(180, 30,  30),   # dark red
+    "innovation": RGBColor(30,  80,  180),  # dark blue
+    "methods":    RGBColor(20,  130, 70),   # dark green
+    "results":    RGBColor(130, 30,  150),  # purple
+}
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build paper reading pptx from JSON outline.")
@@ -73,7 +90,7 @@ def style_title(paragraph: Any) -> None:
         return
     run = paragraph.runs[0]
     run.font.name = "Calibri"
-    run.font.size = Pt(30)
+    run.font.size = Pt(20)
     run.font.bold = True
     run.font.color.rgb = RGBColor(0, 0, 0)
 
@@ -87,28 +104,65 @@ def style_body(paragraph: Any) -> None:
         run.font.color.rgb = RGBColor(0, 0, 0)
 
 
-def add_text_block(slide: Any, title: str, text_lines: Sequence[str]) -> None:
-    box = slide.shapes.add_textbox(Inches(0.45), Inches(0.25), Inches(12.4), Inches(2.15))
+def add_text_block(
+    slide: Any,
+    title: str,
+    sections: Dict[str, str],
+    text_lines: Sequence[str],
+) -> None:
+    """Render the text area at the top of the slide.
+
+    If *sections* contains any of the four keys (motivation / innovation /
+    methods / results), those are rendered as labelled rows with a coloured
+    bold label followed by the content.  Otherwise *text_lines* is used as a
+    plain-text fallback (backwards compatible with old outlines).
+    """
+    box = slide.shapes.add_textbox(Inches(0.45), Inches(0.25), Inches(12.4), Inches(2.35))
     tf = box.text_frame
     tf.clear()
     tf.word_wrap = True
 
+    # --- Title row ---
     title_p = tf.paragraphs[0]
     title_p.text = title
     style_title(title_p)
 
-    for line in text_lines:
-        p = tf.add_paragraph()
-        p.text = line
-        style_body(p)
+    # --- 4-level sections or plain text_lines fallback ---
+    has_sections = any(sections.get(k) for k in SECTION_ORDER)
+    if has_sections:
+        for key in SECTION_ORDER:
+            content = sections.get(key, "").strip()
+            if not content:
+                continue
+            p = tf.add_paragraph()
+            p.alignment = PP_PARAGRAPH_ALIGNMENT.LEFT
+            # Coloured bold label
+            label_run = p.add_run()
+            label_run.text = f"{SECTION_LABELS[key]}:  "
+            label_run.font.name = "Calibri"
+            label_run.font.size = Pt(13)
+            label_run.font.bold = True
+            label_run.font.color.rgb = SECTION_COLORS[key]
+            # Plain content
+            content_run = p.add_run()
+            content_run.text = content
+            content_run.font.name = "Calibri"
+            content_run.font.size = Pt(13)
+            content_run.font.bold = False
+            content_run.font.color.rgb = RGBColor(30, 30, 30)
+    else:
+        for line in text_lines:
+            p = tf.add_paragraph()
+            p.text = line
+            style_body(p)
 
 
 def image_boxes(count: int) -> List[Tuple[float, float, float, float]]:
     count = max(1, min(count, 3))
     left = 0.45
-    top = 2.60
+    top = 2.75     # pushed down to accommodate taller text box
     area_w = 12.4
-    area_h = 4.25
+    area_h = 4.10  # total image height (bottom stays at ~6.85")
     gap = 0.20
 
     if count == 1:
@@ -199,19 +253,19 @@ def add_image_block(
 
 def normalize_slide(slide_spec: Dict[str, Any]) -> Dict[str, Any]:
     title = str(slide_spec.get("title", "")).strip() or "未命名页面"
+
+    # --- 4-level sections (new primary format) ---
+    sections: Dict[str, str] = {}
+    for key in SECTION_ORDER:
+        val = str(slide_spec.get(key, "")).strip()
+        if val:
+            sections[key] = val
+
+    # --- text_lines (legacy / fallback) ---
     text_lines = slide_spec.get("text_lines", [])
     if not isinstance(text_lines, list):
         text_lines = [str(text_lines)]
     text_lines = [str(line).strip() for line in text_lines if str(line).strip()]
-
-    # Convenience mapping for motivation/innovation formatted slides.
-    motivation = str(slide_spec.get("motivation", "")).strip()
-    innovation = str(slide_spec.get("innovation", "")).strip()
-    if not text_lines and (motivation or innovation):
-        if motivation:
-            text_lines.append(f"Motivation: {motivation}")
-        if innovation:
-            text_lines.append(f"Innovation: {innovation}")
 
     images = slide_spec.get("images", [])
     if not isinstance(images, list):
@@ -226,6 +280,7 @@ def normalize_slide(slide_spec: Dict[str, Any]) -> Dict[str, Any]:
     notes = str(slide_spec.get("notes", "")).strip()
     return {
         "title": title,
+        "sections": sections,
         "text_lines": text_lines,
         "images": images,
         "figure_refs": figure_refs,
@@ -257,7 +312,7 @@ def build_presentation(
     for spec in slides:
         slide = prs.slides.add_slide(layout)
         ensure_white_background(slide)
-        add_text_block(slide, spec["title"], spec["text_lines"])
+        add_text_block(slide, spec["title"], spec["sections"], spec["text_lines"])
         resolved_images = [resolve_path(raw, outline_dir) for raw in spec["images"]]
         add_image_block(slide, resolved_images, spec["figure_refs"])
 
