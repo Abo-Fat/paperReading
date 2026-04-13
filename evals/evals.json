@@ -1,0 +1,31 @@
+{
+  "skill_name": "paperReading",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "请读取 ./papers/isscc_2025_example.pdf，按照paperReading技能生成中文文献阅读PPT：第一页是总Motivation+标题作者截图，后续逐页讲Motivation/Innovation并标注Fig，最后给出漏讲创新点和总结。",
+      "expected_output": "生成白底PPT，页面结构满足“上1/3文字+下2/3配图”，且各页内容严格对应原文与图号。",
+      "files": [
+        "./papers/isscc_2025_example.pdf"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "我有一个已有PPT ./outputs/base_report.pptx，请基于 ./papers/vlsi_2024_example.pdf 追加新的Motivation/Innovation页面，不改动已有页面风格。",
+      "expected_output": "在现有PPT上追加符合规则的新页面，图像来自PDF截图，并写清对应Fig解释。",
+      "files": [
+        "./papers/vlsi_2024_example.pdf",
+        "./outputs/base_report.pptx"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "针对 ./papers/tcad_2026_example.pdf，只处理第3页到第15页，提炼关键实验参数与性能指标并生成总结页，若原文未给参数必须显式写“原文未给出”。",
+      "expected_output": "输出内容不臆断，参数和指标来自原文；缺失项被明确标注；PPT布局符合技能规范。",
+      "files": [
+        "./papers/tcad_2026_example.pdf"
+      ]
+    }
+  ]
+}
+

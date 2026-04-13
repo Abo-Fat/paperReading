@@ -1,0 +1,87 @@
+{
+  "paper": {
+    "title": "Paper Title Here",
+    "authors": "Author A, Author B, Author C",
+    "venue_year": "Conference 2026"
+  },
+  "slides": [
+    {
+      "title": "整篇论文的核心Motivation",
+      "text_lines": [
+        "背景：该方向在功耗/性能/面积(PPA)方面遇到瓶颈。",
+        "动机：现有方法在真实工艺约束下无法兼顾精度与可扩展性。",
+        "创新概览：作者提出分层优化框架以降低关键路径开销。"
+      ],
+      "images": [
+        "paper_assets/rendered_pages/first_page_title_authors.png"
+      ],
+      "figure_refs": [
+        "Title + Authors"
+      ]
+    },
+    {
+      "title": "Motivation 1 -> Innovation 1",
+      "motivation": "传统方法在高频场景下时序收敛困难，布局后退化明显。",
+      "innovation": "提出跨层协同建模与自适应约束更新机制。",
+      "text_lines": [
+        "证据链：引言与方法部分指出基线在后仿阶段误差累积。",
+        "图示说明：Fig. 2 展示流程分解；Fig. 3 展示收敛趋势改善。"
+      ],
+      "images": [
+        "paper_assets/rendered_pages/page_0003.png",
+        "paper_assets/rendered_pages/page_0004.png"
+      ],
+      "figure_refs": [
+        "Fig. 2",
+        "Fig. 3"
+      ]
+    },
+    {
+      "title": "Motivation 2 -> Innovation 2",
+      "text_lines": [
+        "Motivation：跨PVT角落下参数漂移导致鲁棒性不足。",
+        "Innovation：引入角落感知的联合损失函数与在线重标定。",
+        "图示说明：Fig. 5 对比多角落误差分布与改进后结果。"
+      ],
+      "images": [
+        "paper_assets/rendered_pages/page_0006.png"
+      ],
+      "figure_refs": [
+        "Fig. 5"
+      ]
+    },
+    {
+      "title": "可能遗漏的小创新点",
+      "text_lines": [
+        "1) 在损失项中引入工艺先验以提升小样本稳定性。",
+        "2) 通过轻量化模块减少训练与部署开销。",
+        "3) 在消融实验中验证每个子模块的独立贡献。"
+      ],
+      "images": [
+        "paper_assets/rendered_pages/page_0007.png",
+        "paper_assets/rendered_pages/page_0008.png",
+        "paper_assets/rendered_pages/page_0009.png"
+      ],
+      "figure_refs": [
+        "Fig. 6",
+        "Fig. 7",
+        "Ablation Table"
+      ]
+    },
+    {
+      "title": "总结",
+      "text_lines": [
+        "本文面向IC设计/制造关键痛点提出可落地方法，并在实验中证明有效性。",
+        "性能指标改善应以原文报告数值为准（延迟/功耗/面积/准确率等）。",
+        "结论：方法在目标场景中具备更好的工程可用性与扩展潜力。"
+      ],
+      "images": [
+        "paper_assets/rendered_pages/page_0010.png"
+      ],
+      "figure_refs": [
+        "Conclusion / Results"
+      ]
+    }
+  ]
+}
+
