@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "请读取 ./papers/isscc_2025_example.pdf，按照paperReading技能生成中文文献阅读PPT：第一页是总Motivation+标题作者截图，后续逐页讲Motivation/Innovation并标注Fig，最后给出漏讲创新点和总结。",
+      "prompt": "请读取 ./papers/isscc_2025_example.pdf，按照paperReading技能生成中文文献阅读PPT：第一页详细讲研究背景和研究动机并配标题作者截图，后续逐页讲Motivation/Innovation并标注Fig，最后给出漏讲创新点，以及包含总结和评价的最后一页。",
       "expected_output": "生成白底PPT，页面结构满足“上1/3文字+下2/3配图”，且各页内容严格对应原文与图号。",
       "files": [
         "./papers/isscc_2025_example.pdf"
@@ -28,4 +28,3 @@
     }
   ]
 }
-

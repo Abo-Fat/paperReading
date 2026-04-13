@@ -81,7 +81,7 @@ python paperReading/scripts/extract_pdf_context.py \
 
 ### 第 2 步：编写 outline.json
 
-参考 [references/outline_example.json](references/outline_example.json)，每张幻灯片使用**四层次字段**：
+参考 [references/outline_example.json](references/outline_example.json)。中间分析页使用**四层次字段**，首页和最后一页优先使用 `text_lines` 写叙事型内容：
 
 ```jsonc
 {
@@ -92,13 +92,15 @@ python paperReading/scripts/extract_pdf_context.py \
   },
   "slides": [
     {
-      "title": "整篇论文的核心 Motivation",
-      "motivation": "现有方法存在的核心痛点（贴合原文）",
-      "innovation": "本文提出的系统性解决方案概述",
-      "methods":    "主要技术路径/框架概述",
-      "results":    "核心量化结论（引用原文数值）",
-      "images":     ["paper_assets/rendered_pages/first_page_title_authors.png"],
-      "figure_refs":["Title + Authors"]
+      "title": "研究背景与动机",
+      "text_lines": [
+        "该方向面向……应用场景，核心关注指标是……。",
+        "现有方法主要受限于……，导致……问题持续存在。",
+        "这些限制使得……场景下的性能/成本/可扩展性难以兼顾。",
+        "因此，本文的核心研究动机是……。"
+      ],
+      "images": ["paper_assets/rendered_pages/first_page_title_authors.png"],
+      "figure_refs": ["Title + Authors"]
     },
     {
       "title": "Motivation 1 → Innovation 1：时序收敛",
@@ -107,16 +109,16 @@ python paperReading/scripts/extract_pdf_context.py \
       "methods":    "时序感知损失函数，联合优化关键路径与扇出。",
       "results":    "后仿误差降低 42%，迭代轮数从 4.2 减至 1.8（Fig. 3）。",
       "images":     ["paper_assets/rendered_pages/figures/fig_p0003_00.png"],
-      "figure_refs":["Fig. 3"]
+      "figure_refs": ["Fig. 3"]
     }
     // ... 更多 Motivation/Innovation 对 ...
     // 倒数第二页：可能遗漏的小创新点（可用 text_lines）
-    // 最后一页：总结
+    // 最后一页：总结 + 评价（优先用 text_lines）
   ]
 }
 ```
 
-**四层次字段说明：**
+**四层次字段说明（仅中间分析页强制使用）：**
 
 | 字段 | PPT 标签颜色 | 内容要求 |
 |------|-------------|----------|
@@ -125,14 +127,14 @@ python paperReading/scripts/extract_pdf_context.py \
 | `methods` | 深绿 | 关键技术实现路径，含参数/流程要点（1-2 句）|
 | `results` | 紫色 | 量化结论/对比数据，引用原文数值（1-2 句）|
 
-> `text_lines` 字段仍受支持（向后兼容），当四个字段均缺失时作为 fallback 渲染。
+> `text_lines` 字段仍受支持（向后兼容），当四个字段均缺失时作为 fallback 渲染。推荐将首页和最后一页都写成 `text_lines`。
 
 **幻灯片顺序规范：**
 
-1. 首页：整篇论文总 Motivation（配标题/作者截图）
+1. 首页：详细讲清故事背景与研究动机（配标题/作者截图，不套四层次）
 2. 每个 Motivation → Innovation 对独立一页（配单独 Fig 图片）
 3. 可能遗漏的小创新点
-4. 总结页
+4. 总结 + 评价页（不套四层次）
 
 ---
 
@@ -170,7 +172,9 @@ python paperReading/scripts/build_paper_reading_ppt.py \
 所有页面统一采用：
 
 - 纯白背景
-- **上方约 1/3**：标题（Calibri 20pt 加粗）+ 四层次文字区（标签 13pt 彩色加粗，内容 13pt 黑色）
+- **上方约 1/3**：标题（Calibri 20pt 加粗）+ 文字区
+- 中间分析页文字区：四层次结构（标签 13pt 彩色加粗，内容 13pt 黑色）
+- 首页与最后一页文字区：优先使用 `text_lines` 组织成逻辑清楚的叙事/总结评价短句
 - **下方约 2/3**：配图区（最多 3 张并排，自动居中适配比例）
 
 每张图下方自动添加图号字幕（10pt 灰色居中）。
