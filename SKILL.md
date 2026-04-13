@@ -113,7 +113,7 @@ python paperReading/scripts/extract_pdf_context.py ^
 ```bash
 python paperReading/scripts/build_paper_reading_ppt.py ^
   --outline-json "<outline.json>" ^
-  --output "<result.pptx>"
+  --output "<output_dir>"
 ```
 
 若要在已有文档上继续追加（修改场景）：
@@ -122,8 +122,10 @@ python paperReading/scripts/build_paper_reading_ppt.py ^
 python paperReading/scripts/build_paper_reading_ppt.py ^
   --outline-json "<outline.json>" ^
   --base-pptx "<existing.pptx>" ^
-  --output "<updated.pptx>"
+  --output "<output_dir>"
 ```
+最终文件名默认遵循：`<日期>_<文章前几个单词>.pptx`，例如 `260413_A_28nm_all_analog_SRAM_CIM.pptx`。
+如需覆盖日期可传 `--date-tag`，如需禁用自动命名可传 `--keep-output-name`。
 
 脚本会自动按“上 1/3 文本 + 下 2/3 图片”排版，支持单图与 2-3 图并列。
 

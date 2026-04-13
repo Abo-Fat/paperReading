@@ -11,7 +11,9 @@ The generated layout is fixed:
 from __future__ import annotations
 
 import argparse
+import re
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Sequence, Tuple
 
@@ -46,8 +48,28 @@ SECTION_COLORS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Build paper reading pptx from JSON outline.")
     parser.add_argument("--outline-json", required=True, help="Path to outline JSON.")
-    parser.add_argument("--output", required=True, help="Output PPTX path.")
+    parser.add_argument(
+        "--output",
+        required=True,
+        help="Output PPTX path or output directory. Final filename uses '<YYMMDD>_<title words>.pptx'.",
+    )
     parser.add_argument("--base-pptx", default="", help="Existing PPTX to append/update.")
+    parser.add_argument(
+        "--date-tag",
+        default="",
+        help="Date tag used in final filename. Default: current date in YYMMDD.",
+    )
+    parser.add_argument(
+        "--title-words",
+        type=int,
+        default=8,
+        help="How many leading title words to keep in final filename (default: 8).",
+    )
+    parser.add_argument(
+        "--keep-output-name",
+        action="store_true",
+        help="Keep the exact --output filename without automatic renaming.",
+    )
     parser.add_argument(
         "--clear-existing",
         action="store_true",
@@ -76,6 +98,46 @@ def load_outline(path: Path) -> Dict[str, Any]:
     if "slides" not in data or not isinstance(data["slides"], list):
         raise ValueError("outline JSON must include a 'slides' list.")
     return data
+
+
+def _slugify_title_words(title: str, max_words: int) -> str:
+    tokens = re.findall(r"[A-Za-z0-9]+", title)
+    words = [tok for tok in tokens if tok]
+    if max_words > 0:
+        words = words[:max_words]
+    slug = "_".join(words)
+    slug = re.sub(r"_+", "_", slug).strip("_")
+    return slug or "paper"
+
+
+def infer_paper_title(outline: Dict[str, Any]) -> str:
+    paper = outline.get("paper", {})
+    if isinstance(paper, dict):
+        title = str(paper.get("title", "")).strip()
+        if title:
+            return title
+
+    slides = outline.get("slides", [])
+    if isinstance(slides, list) and slides:
+        first = slides[0]
+        if isinstance(first, dict):
+            title = str(first.get("title", "")).strip()
+            if title:
+                return title
+    return "paper"
+
+
+def resolve_output_path(
+    requested_output: Path,
+    outline: Dict[str, Any],
+    date_tag: str,
+    title_words: int,
+) -> Path:
+    parent = requested_output if requested_output.suffix.lower() != ".pptx" else requested_output.parent
+    title = infer_paper_title(outline)
+    safe_words = max(1, title_words)
+    stem = f"{date_tag}_{_slugify_title_words(title, safe_words)}"
+    return (parent / f"{stem}.pptx").resolve()
 
 
 def ensure_white_background(slide: Any) -> None:
@@ -326,13 +388,24 @@ def build_presentation(
 def main() -> None:
     args = parse_args()
     outline_path = Path(args.outline_json).resolve()
-    output_path = Path(args.output).resolve()
+    requested_output = Path(args.output).resolve()
     base_path = Path(args.base_pptx).resolve() if args.base_pptx else None
 
     if not outline_path.exists():
         raise FileNotFoundError(f"Outline JSON not found: {outline_path}")
 
     outline = load_outline(outline_path)
+    date_tag = args.date_tag.strip() or datetime.now().strftime("%y%m%d")
+    if args.keep_output_name:
+        output_path = requested_output
+    else:
+        output_path = resolve_output_path(
+            requested_output=requested_output,
+            outline=outline,
+            date_tag=date_tag,
+            title_words=args.title_words,
+        )
+
     prs = build_presentation(
         outline=outline,
         outline_dir=outline_path.parent,
@@ -344,9 +417,10 @@ def main() -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(output_path))
     print(f"[OK] PPT generated: {output_path}")
+    if not args.keep_output_name:
+        print(f"[INFO] output naming rule: {date_tag}_<paper_title_words>.pptx")
     print(f"[INFO] slides count: {len(prs.slides)}")
 
 
 if __name__ == "__main__":
     main()
-

@@ -143,7 +143,7 @@ python paperReading/scripts/extract_pdf_context.py \
 ```bash
 python paperReading/scripts/build_paper_reading_ppt.py \
   --outline-json "outline.json" \
-  --output "result.pptx"
+  --output "outputs"
 ```
 
 **在已有 PPTX 上追加（修改场景）：**
@@ -152,18 +152,24 @@ python paperReading/scripts/build_paper_reading_ppt.py \
 python paperReading/scripts/build_paper_reading_ppt.py \
   --outline-json "outline.json" \
   --base-pptx "existing.pptx" \
-  --output "updated.pptx"
+  --output "outputs"
 ```
+
+输出文件会自动按以下格式命名：
+`<日期>_<文章前几个单词>.pptx`，例如 `260413_A_28nm_all_analog_SRAM_CIM.pptx`。
 
 **全部参数：**
 
 | 参数 | 说明 |
 |---|---|
 | `--outline-json` | outline JSON 路径（必填）|
-| `--output` | 输出 PPTX 路径（必填）|
+| `--output` | 输出目录或输出路径（必填）。默认会自动重命名为 `<YYMMDD>_<title_words>.pptx` |
 | `--base-pptx` | 基础 PPTX（可选，用于追加模式）|
 | `--clear-existing` | 配合 `--base-pptx` 使用，先清空原有幻灯片 |
 | `--force-16x9` | 强制输出 16:9 尺寸 |
+| `--date-tag` | 自定义日期标签（默认当天 `YYMMDD`） |
+| `--title-words` | 文件名保留论文标题前 N 个英文单词（默认 8） |
+| `--keep-output-name` | 禁用自动命名，保持 `--output` 原始文件名 |
 
 ---
 
