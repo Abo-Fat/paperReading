@@ -1,6 +1,8 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Extract text and rendered page images from a paper PDF.
+
+Figure extraction is now unified to a pdffigures2-style JSON adapter.
 
 Outputs:
 1) text_by_page.json
@@ -20,6 +22,19 @@ from typing import Any, Dict, List, Tuple
 from pypdf import PdfReader
 
 FIG_PATTERN = re.compile(r"\b(?:Fig(?:ure)?\.?\s*\d+[A-Za-z]?)\b", re.IGNORECASE)
+
+
+def empty_figure_result(extracted: bool = True, reason: str = "") -> Dict[str, Any]:
+    return {
+        "extracted": extracted,
+        "reason": reason,
+        "figures_by_page": {},
+        "figures_meta_by_page": {},
+    }
+
+
+def count_extracted_figures(result: Dict[str, Any]) -> int:
+    return sum(len(v) for v in result.get("figures_by_page", {}).values())
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,10 +64,20 @@ def parse_args() -> argparse.Namespace:
         help="1-based last page to process. 0 means the last page.",
     )
     parser.add_argument(
-        "--figure-extractor",
-        choices=["auto", "legacy", "iedm"],
-        default="auto",
-        help="Figure extraction mode: auto (default), legacy, or iedm.",
+        "--pdffigures2-json",
+        default="",
+        help=(
+            "Path to pdffigures2 JSON output. "
+            "If empty, tries <out-dir>/pdffigures2/figures.json."
+        ),
+    )
+    parser.add_argument(
+        "--pdffigures2-fig-root",
+        default="",
+        help=(
+            "Optional root directory for figure image paths referenced in "
+            "pdffigures2 JSON. Useful when JSON stores relative paths."
+        ),
     )
     return parser.parse_args()
 
@@ -142,379 +167,129 @@ def render_pages(
     }
 
 
-def extract_figures_fitz(
+def _pick_first_nonempty_str(record: Dict[str, Any], keys: List[str]) -> str:
+    for key in keys:
+        val = record.get(key)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    return ""
+
+
+def _resolve_pdffigures2_image_path(
+    raw_path: str,
+    json_path: Path,
+    fig_root: Path | None,
+) -> str:
+    p = Path(raw_path)
+    if p.is_absolute():
+        return str(p.resolve())
+    if fig_root is not None:
+        return str((fig_root / p).resolve())
+    return str((json_path.parent / p).resolve())
+
+
+def extract_figures_pdffigures2(
     pdf_path: Path,
-    figures_dir: Path,
-    dpi: int,
+    json_path: Path,
     start_page: int,
     end_page: int,
+    fig_root: Path | None = None,
 ) -> Dict[str, Any]:
-    """Extract individual figures (with captions) from PDF using pymupdf (fitz)."""
+    """Adapt pdffigures2-style outputs into the paperReading manifest shape.
+
+    Expected JSON shape:
+    - list[dict] or {"figures": list[dict]}
+    Supported per-figure keys (best effort):
+    - page/pageNumber/pageno
+    - path/imagePath/figPath/renderURL
+    - caption/name/figureType/regionBoundary/captionBoundary
+    """
+    if not json_path.exists():
+        return empty_figure_result(
+            extracted=False,
+            reason=f"pdffigures2 json not found: {json_path}",
+        )
+
     try:
-        import fitz  # pymupdf
-    except Exception as exc:  # pragma: no cover - environment dependent
-        return {
-            "extracted": False,
-            "reason": f"pymupdf unavailable: {exc}",
-            "figures_by_page": {},
-        }
+        with json_path.open("r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception as exc:  # pragma: no cover - file/content dependent
+        return empty_figure_result(
+            extracted=False,
+            reason=f"failed to parse pdffigures2 json: {exc}",
+        )
 
-    fig_caption_re = re.compile(
-        r"^\s*fig\.?\s*\d+|^\s*figure\s*\d+", re.IGNORECASE | re.MULTILINE
-    )
-    cap_search_margin = 80
-    cap_continue_gap = 8
-    h_slack = 15
-    pad = 8
-    min_dim = 60
+    rows: List[Dict[str, Any]]
+    if isinstance(payload, list):
+        rows = [r for r in payload if isinstance(r, dict)]
+    elif isinstance(payload, dict) and isinstance(payload.get("figures"), list):
+        rows = [r for r in payload["figures"] if isinstance(r, dict)]
+    else:
+        return empty_figure_result(
+            extracted=False,
+            reason="unsupported pdffigures2 json format (need list or {'figures': [...]})",
+        )
 
-    figures_dir.mkdir(parents=True, exist_ok=True)
-    doc = fitz.open(str(pdf_path))
-    total_pages = len(doc)
+    reader = PdfReader(str(pdf_path))
+    total_pages = len(reader.pages)
     start, end = normalize_page_range(total_pages, start_page, end_page)
-    scale = max(0.2, dpi / 72.0)
-    mat = fitz.Matrix(scale, scale)
 
     figures_by_page: Dict[str, List[str]] = {}
-    for page_idx in range(start - 1, end):
-        page_num = page_idx + 1
-        page = doc[page_idx]
-        page_rect = page.rect
-
-        raw = page.get_text("blocks")
-        text_blocks: List[Tuple[float, float, float, float, str]] = sorted(
-            [(b[0], b[1], b[2], b[3], b[4]) for b in raw if b[6] == 0],
-            key=lambda t: t[1],
-        )
-
-        img_rects: List[Tuple[float, float, float, float]] = []
-        seen: set = set()
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            if xref in seen:
-                continue
-            seen.add(xref)
-            for r in page.get_image_rects(xref):
-                if r.width > 30 and r.height > 30:
-                    img_rects.append((r.x0, r.y0, r.x1, r.y1))
-
-        if not img_rects:
-            dict_blocks = page.get_text("dict")["blocks"]
-            img_rects = [
-                tuple(b["bbox"])
-                for b in dict_blocks
-                if b.get("type") == 1
-                and (b["bbox"][2] - b["bbox"][0]) > 30
-                and (b["bbox"][3] - b["bbox"][1]) > 30
-            ]
-
-        if not img_rects:
+    figures_meta_by_page: Dict[str, List[Dict[str, Any]]] = {}
+    for row in rows:
+        raw_page = row.get("page", row.get("pageNumber", row.get("pageno")))
+        if raw_page is None:
+            continue
+        try:
+            page_num = int(raw_page)
+        except Exception:
             continue
 
-        page_figs: List[str] = []
-        for fig_idx, (bx0, by0, bx1, by1) in enumerate(img_rects):
-            if (bx1 - bx0) < 30 or (by1 - by0) < 30:
-                continue
+        # Some pdffigures2 dumps use 0-based page index.
+        if 0 <= page_num < total_pages and page_num < start:
+            page_num += 1
+        if page_num < start or page_num > end:
+            continue
 
-            cy1 = by1
-            caption_found = False
-
-            for (tx0, ty0, tx1, ty1, text) in text_blocks:
-                if ty0 < by1 - 5:
-                    continue
-
-                if not caption_found:
-                    if ty0 > by1 + cap_search_margin:
-                        break
-                    if tx0 < bx0 - h_slack or tx0 > bx1 + h_slack:
-                        continue
-                    if fig_caption_re.search(text):
-                        caption_found = True
-                        cy1 = max(cy1, ty1)
-                else:
-                    if ty0 <= cy1 + cap_continue_gap:
-                        cy1 = max(cy1, ty1)
-                    else:
-                        break
-
-            clip = fitz.Rect(
-                max(page_rect.x0, bx0 - pad),
-                max(page_rect.y0, by0 - pad),
-                min(page_rect.x1, bx1 + pad),
-                min(page_rect.y1, cy1 + pad),
-            )
-
-            pix = page.get_pixmap(matrix=mat, clip=clip)
-            if pix.width < min_dim or pix.height < min_dim:
-                continue
-
-            fig_path = figures_dir / f"fig_p{page_num:04d}_{fig_idx:02d}.png"
-            pix.save(str(fig_path))
-            page_figs.append(str(fig_path.resolve()))
-
-        if page_figs:
-            figures_by_page[str(page_num)] = page_figs
-
-    return {
-        "extracted": True,
-        "reason": "",
-        "figures_by_page": figures_by_page,
-    }
-
-
-def detect_iedm_layout(
-    pdf_path: Path,
-    start_page: int,
-    end_page: int,
-) -> Dict[str, Any]:
-    """Heuristic detector for IEDM-like layout:
-    - early pages are text-heavy with no figure captions
-    - dedicated figure pages contain many `Fig.` captions and dense graphics
-    """
-    try:
-        import fitz  # pymupdf
-    except Exception as exc:  # pragma: no cover - environment dependent
-        return {
-            "is_iedm_layout": False,
-            "reason": f"pymupdf unavailable: {exc}",
-            "page_stats": [],
-        }
-
-    fig_caption_re = re.compile(r"^\s*fig\.?\s*\d+|^\s*figure\s*\d+", re.IGNORECASE)
-    doc = fitz.open(str(pdf_path))
-    total_pages = len(doc)
-    start, end = normalize_page_range(total_pages, start_page, end_page)
-
-    stats: List[Dict[str, Any]] = []
-    figure_like_pages: List[int] = []
-    prefix_text_pages = 0
-    for page_idx in range(start - 1, end):
-        page_num = page_idx + 1
-        page = doc[page_idx]
-        blocks = page.get_text("blocks")
-        text_blocks = [b for b in blocks if b[6] == 0 and (b[4] or "").strip()]
-        caption_blocks = [
-            b for b in text_blocks if fig_caption_re.search((b[4] or "").strip())
-        ]
-        image_count = len(page.get_images(full=True))
-        drawing_count = len(page.get_drawings())
-        # IEDM/VLSI figure pages often have many "Fig" captions even if the
-        # absolute count of image/drawing objects is moderate.
-        is_figure_like = (
-            (len(caption_blocks) >= 8 and (image_count >= 8 or drawing_count >= 150))
-            or len(caption_blocks) >= 12
+        img_rel = _pick_first_nonempty_str(
+            row,
+            ["path", "imagePath", "figPath", "renderURL"],
         )
-        if is_figure_like:
-            figure_like_pages.append(page_num)
-        if (page_num - start) < 2 and len(caption_blocks) == 0 and image_count == 0:
-            prefix_text_pages += 1
+        if not img_rel:
+            continue
 
-        stats.append(
+        img_path = _resolve_pdffigures2_image_path(
+            raw_path=img_rel,
+            json_path=json_path,
+            fig_root=fig_root,
+        )
+        if not Path(img_path).exists():
+            continue
+
+        page_key = str(page_num)
+        figures_by_page.setdefault(page_key, []).append(img_path)
+        figures_meta_by_page.setdefault(page_key, []).append(
             {
-                "page": page_num,
-                "caption_blocks": len(caption_blocks),
-                "images": image_count,
-                "drawings": drawing_count,
-                "is_figure_like": is_figure_like,
+                "source": "pdffigures2",
+                "caption": _pick_first_nonempty_str(row, ["caption"]),
+                "name": _pick_first_nonempty_str(row, ["name"]),
+                "figure_type": _pick_first_nonempty_str(row, ["figureType"]),
+                "region_boundary": row.get("regionBoundary"),
+                "caption_boundary": row.get("captionBoundary"),
             }
         )
 
-    is_iedm_layout = len(figure_like_pages) >= 1 and prefix_text_pages >= 1
-    reason = (
-        f"figure_like_pages={figure_like_pages}, prefix_text_pages={prefix_text_pages}"
-    )
-    return {
-        "is_iedm_layout": is_iedm_layout,
-        "reason": reason,
-        "page_stats": stats,
-    }
-
-
-def extract_figures_iedm_layout(
-    pdf_path: Path,
-    figures_dir: Path,
-    dpi: int,
-    start_page: int,
-    end_page: int,
-) -> Dict[str, Any]:
-    """Extract figures for IEDM-like pages where captions and graphics are separated.
-
-    Instead of treating each PDF image object as one figure, this logic:
-    1) anchors on caption blocks starting with "Fig."
-    2) defines figure regions by column and vertical intervals between captions
-    3) keeps only regions that contain sufficient graphical primitives
-    """
-    try:
-        import fitz  # pymupdf
-    except Exception as exc:  # pragma: no cover - environment dependent
-        return {
-            "extracted": False,
-            "reason": f"pymupdf unavailable: {exc}",
-            "figures_by_page": {},
-        }
-
-    fig_caption_re = re.compile(r"^\s*fig\.?\s*\d+|^\s*figure\s*\d+", re.IGNORECASE)
-    scale = max(0.2, dpi / 72.0)
-    mat = fitz.Matrix(scale, scale)
-
-    figures_dir.mkdir(parents=True, exist_ok=True)
-    doc = fitz.open(str(pdf_path))
-    total_pages = len(doc)
-    start, end = normalize_page_range(total_pages, start_page, end_page)
-
-    figures_by_page: Dict[str, List[str]] = {}
-    for page_idx in range(start - 1, end):
-        page_num = page_idx + 1
-        page = doc[page_idx]
-        page_rect = page.rect
-        mid_x = page_rect.x0 + page_rect.width / 2.0
-
-        blocks = page.get_text("blocks")
-        caption_blocks: List[Tuple[float, float, float, float, str]] = []
-        for b in blocks:
-            if b[6] != 0:
-                continue
-            text = (b[4] or "").strip()
-            if not text:
-                continue
-            if fig_caption_re.search(text):
-                caption_blocks.append((b[0], b[1], b[2], b[3], text))
-        if not caption_blocks:
-            continue
-
-        graphic_rects: List[Tuple[float, float, float, float]] = []
-        seen_xref: set = set()
-        for img_info in page.get_images(full=True):
-            xref = img_info[0]
-            if xref in seen_xref:
-                continue
-            seen_xref.add(xref)
-            for r in page.get_image_rects(xref):
-                if r.width > 5 and r.height > 5:
-                    graphic_rects.append((r.x0, r.y0, r.x1, r.y1))
-        for d in page.get_drawings():
-            r = d.get("rect")
-            if not r:
-                continue
-            if r.width > 5 and r.height > 5:
-                graphic_rects.append((r.x0, r.y0, r.x1, r.y1))
-
-        if not graphic_rects:
-            continue
-
-        page_figs: List[str] = []
-        saved_fingerprints: set = set()
-        pad = 8
-        min_region_pt = 40
-        row_merge_gap = 90
-        min_graphics_area = 900
-
-        # 1) Build rows by caption y. IEDM/VLSI figure pages are usually row-aligned.
-        caps_sorted_y = sorted(caption_blocks, key=lambda t: (t[1], t[0]))
-        rows: List[List[Tuple[float, float, float, float, str]]] = []
-        for cap in caps_sorted_y:
-            if not rows:
-                rows.append([cap])
-                continue
-            last_row = rows[-1]
-            row_anchor_y = sum(c[1] for c in last_row) / len(last_row)
-            if abs(cap[1] - row_anchor_y) <= row_merge_gap:
-                last_row.append(cap)
-            else:
-                rows.append([cap])
-
-        # 2) Row-wise region: from previous row caption bottom to this row caption bottom.
-        row_bounds: List[Tuple[float, float, List[Tuple[float, float, float, float, str]]]] = []
-        prev_row_bottom = page_rect.y0
-        for row in rows:
-            row_bottom = max(c[3] for c in row)
-            y0 = max(page_rect.y0, prev_row_bottom + 2)
-            y1 = min(page_rect.y1, row_bottom + 4)
-            if y1 - y0 >= min_region_pt:
-                row_bounds.append((y0, y1, row))
-            prev_row_bottom = row_bottom
-
-        # 3) Column-wise split in each row by caption x-centers.
-        expected_slots = sum(len(r) for _, _, r in row_bounds)
-        avg_graphics_per_slot = (
-            float(len(graphic_rects)) / float(max(1, expected_slots))
+    if not figures_by_page:
+        return empty_figure_result(
+            extracted=False,
+            reason="no usable figures found in pdffigures2 output",
         )
-        # Adaptive filter: dense vector-heavy pages and sparse bitmap pages both work.
-        min_graphics_in_region = max(1, min(4, int(round(avg_graphics_per_slot * 0.6))))
-
-        for y0, y1, row in row_bounds:
-            row_sorted_x = sorted(row, key=lambda t: (t[0] + t[2]) / 2.0)
-            centers = [((c[0] + c[2]) / 2.0) for c in row_sorted_x]
-
-            x_ranges: List[Tuple[float, float]] = []
-            if len(row_sorted_x) >= 2:
-                for i, cx in enumerate(centers):
-                    left_bound = page_rect.x0 if i == 0 else (centers[i - 1] + cx) / 2.0
-                    right_bound = page_rect.x1 if i == len(centers) - 1 else (cx + centers[i + 1]) / 2.0
-                    x_ranges.append((left_bound, right_bound))
-            else:
-                cx = centers[0]
-                if abs(cx - mid_x) <= 40:
-                    x_ranges.append((page_rect.x0, page_rect.x1))
-                elif cx < mid_x:
-                    x_ranges.append((page_rect.x0, mid_x))
-                else:
-                    x_ranges.append((mid_x, page_rect.x1))
-
-            for rx0, rx1 in x_ranges:
-                rx0 = max(page_rect.x0, rx0 + 2)
-                rx1 = min(page_rect.x1, rx1 - 2)
-                if rx1 - rx0 < min_region_pt:
-                    continue
-
-                # Keep only regions with enough graphics area/instances.
-                hits = 0
-                covered_area = 0.0
-                for gx0, gy0, gx1, gy1 in graphic_rects:
-                    ix0 = max(rx0, gx0)
-                    iy0 = max(y0, gy0)
-                    ix1 = min(rx1, gx1)
-                    iy1 = min(y1, gy1)
-                    if ix1 <= ix0 or iy1 <= iy0:
-                        continue
-                    hits += 1
-                    covered_area += (ix1 - ix0) * (iy1 - iy0)
-                if hits < min_graphics_in_region or covered_area < min_graphics_area:
-                    continue
-
-                clip = fitz.Rect(
-                    max(page_rect.x0, rx0 - pad),
-                    max(page_rect.y0, y0 - pad),
-                    min(page_rect.x1, rx1 + pad),
-                    min(page_rect.y1, y1 + pad),
-                )
-                if clip.width < min_region_pt or clip.height < min_region_pt:
-                    continue
-
-                fp = (
-                    round(clip.x0, 1),
-                    round(clip.y0, 1),
-                    round(clip.x1, 1),
-                    round(clip.y1, 1),
-                )
-                if fp in saved_fingerprints:
-                    continue
-                saved_fingerprints.add(fp)
-
-                pix = page.get_pixmap(matrix=mat, clip=clip)
-                if pix.width < 120 or pix.height < 120:
-                    continue
-                fig_path = figures_dir / f"fig_p{page_num:04d}_{len(page_figs):02d}.png"
-                pix.save(str(fig_path))
-                page_figs.append(str(fig_path.resolve()))
-
-        if page_figs:
-            figures_by_page[str(page_num)] = page_figs
 
     return {
         "extracted": True,
         "reason": "",
         "figures_by_page": figures_by_page,
+        "figures_meta_by_page": figures_meta_by_page,
     }
 
 
@@ -556,32 +331,23 @@ def main() -> None:
         end_page=args.end_page,
     )
 
-    layout_probe = detect_iedm_layout(
+    pdffigures2_json = (
+        Path(args.pdffigures2_json).resolve()
+        if args.pdffigures2_json
+        else (out_dir / "pdffigures2" / "figures.json").resolve()
+    )
+    pdffigures2_root = (
+        Path(args.pdffigures2_fig_root).resolve()
+        if args.pdffigures2_fig_root
+        else None
+    )
+    figure_result = extract_figures_pdffigures2(
         pdf_path=pdf_path,
+        json_path=pdffigures2_json,
         start_page=args.start_page,
         end_page=args.end_page,
+        fig_root=pdffigures2_root,
     )
-
-    selected_extractor = args.figure_extractor
-    if selected_extractor == "auto":
-        selected_extractor = "iedm" if layout_probe["is_iedm_layout"] else "legacy"
-
-    if selected_extractor == "iedm":
-        figure_result = extract_figures_iedm_layout(
-            pdf_path=pdf_path,
-            figures_dir=out_dir / "rendered_pages" / "figures",
-            dpi=args.dpi,
-            start_page=args.start_page,
-            end_page=args.end_page,
-        )
-    else:
-        figure_result = extract_figures_fitz(
-            pdf_path=pdf_path,
-            figures_dir=out_dir / "rendered_pages" / "figures",
-            dpi=args.dpi,
-            start_page=args.start_page,
-            end_page=args.end_page,
-        )
 
     manifest_path = out_dir / "extraction_manifest.json"
     with manifest_path.open("w", encoding="utf-8") as f:
@@ -596,9 +362,10 @@ def main() -> None:
                 "figures_extracted": figure_result["extracted"],
                 "figures_reason": figure_result["reason"],
                 "figures_by_page": figure_result["figures_by_page"],
-                "figure_extractor_requested": args.figure_extractor,
-                "figure_extractor_selected": selected_extractor,
-                "layout_probe": layout_probe,
+                "figures_meta_by_page": figure_result["figures_meta_by_page"],
+                "figure_extractor_selected": "pdffigures2",
+                "pdffigures2_json": str(pdffigures2_json),
+                "pdffigures2_fig_root": str(pdffigures2_root) if pdffigures2_root else "",
             },
             f,
             ensure_ascii=False,
@@ -611,16 +378,18 @@ def main() -> None:
         print(f"[OK] rendered pages: {len(render_result['images'])}")
     else:
         print(f"[WARN] pages not rendered: {render_result['reason']}")
+
     if figure_result["extracted"]:
-        total_figs = sum(len(v) for v in figure_result["figures_by_page"].values())
-        print(f"[OK] figure extractor selected: {selected_extractor}")
-        print(f"[OK] individual figures extracted: {total_figs} across {len(figure_result['figures_by_page'])} pages")
+        total_figs = count_extracted_figures(figure_result)
+        print("[OK] figure extractor selected: pdffigures2")
+        print(
+            "[OK] individual figures extracted: "
+            f"{total_figs} across {len(figure_result['figures_by_page'])} pages"
+        )
     else:
         print(f"[WARN] figures not extracted: {figure_result['reason']}")
 
 
 if __name__ == "__main__":
     main()
-
-
 
