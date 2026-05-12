@@ -151,7 +151,7 @@ def style_title(paragraph: Any) -> None:
     if not paragraph.runs:
         return
     run = paragraph.runs[0]
-    run.font.name = "Calibri"
+    run.font.name = "Microsoft YaHei"
     run.font.size = Pt(20)
     run.font.bold = True
     run.font.color.rgb = RGBColor(0, 0, 0)
@@ -160,7 +160,7 @@ def style_title(paragraph: Any) -> None:
 def style_body(paragraph: Any) -> None:
     paragraph.alignment = PP_PARAGRAPH_ALIGNMENT.LEFT
     for run in paragraph.runs:
-        run.font.name = "Calibri"
+        run.font.name = "Microsoft YaHei"
         run.font.size = Pt(16)
         run.font.bold = False
         run.font.color.rgb = RGBColor(0, 0, 0)
@@ -201,15 +201,15 @@ def add_text_block(
             # Coloured bold label
             label_run = p.add_run()
             label_run.text = f"{SECTION_LABELS[key]}:  "
-            label_run.font.name = "Calibri"
-            label_run.font.size = Pt(13)
+            label_run.font.name = "Microsoft YaHei"
+            label_run.font.size = Pt(16)
             label_run.font.bold = True
             label_run.font.color.rgb = SECTION_COLORS[key]
             # Plain content
             content_run = p.add_run()
             content_run.text = content
-            content_run.font.name = "Calibri"
-            content_run.font.size = Pt(13)
+            content_run.font.name = "Microsoft YaHei"
+            content_run.font.size = Pt(16)
             content_run.font.bold = False
             content_run.font.color.rgb = RGBColor(30, 30, 30)
     else:

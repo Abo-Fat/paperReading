@@ -27,8 +27,8 @@
       "methods": "在布局阶段引入时序感知损失函数，联合优化关键路径与扇出约束。",
       "results": "后仿误差降低 42%，迭代轮数从平均 4.2 次减至 1.8 次（Fig. 3）。",
       "images": [
-        "paper_assets/rendered_pages/figures/fig_p0003_00.png",
-        "paper_assets/rendered_pages/figures/fig_p0004_00.png"
+        "paper_assets/example_paper_figures/p03_Fig1.png",
+        "paper_assets/example_paper_figures/p04_Fig1.png"
       ],
       "figure_refs": [
         "Fig. 2",
@@ -42,7 +42,7 @@
       "methods": "选取 SS/FF/TT 三组角落联合训练；在线阶段以极少量样本完成重标定。",
       "results": "全部 PVT 角落误差分布标准差下降 58%，最差角落精度提升 31%（Fig. 5）。",
       "images": [
-        "paper_assets/rendered_pages/figures/fig_p0006_00.png"
+        "paper_assets/example_paper_figures/p06_Fig1.png"
       ],
       "figure_refs": [
         "Fig. 5"
@@ -56,8 +56,8 @@
         "3) 消融实验逐一验证每个子模块的独立贡献（Table II）。"
       ],
       "images": [
-        "paper_assets/rendered_pages/figures/fig_p0007_00.png",
-        "paper_assets/rendered_pages/figures/fig_p0008_00.png"
+        "paper_assets/example_paper_figures/p07_Fig1.png",
+        "paper_assets/example_paper_figures/p08_Table1.png"
       ],
       "figure_refs": [
         "Fig. 6",
@@ -73,7 +73,7 @@
         "评价：相对不足是部分实现细节与部署代价仍需更充分披露；若原文对训练/版图开销说明有限，汇报时应明确指出这一局限。"
       ],
       "images": [
-        "paper_assets/rendered_pages/figures/fig_p0010_00.png"
+        "paper_assets/example_paper_figures/p10_Fig1.png"
       ],
       "figure_refs": [
         "Conclusion / Results"
