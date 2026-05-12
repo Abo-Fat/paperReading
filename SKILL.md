@@ -2,7 +2,6 @@
 name: paper-reading
 description: 用于“读取论文 PDF 并输出/修改中文文献阅读 PPT”的专用技能。只要用户提到论文精读、文献阅读报告、Motivation/Innovation 对照分析、按 Fig 讲解、从 PDF 抽图、生成或修改 .pptx（尤其是 IC 设计/制造方向），都应触发本技能。
 ---
-
 # paperReading Skill
 
 ## 目标
@@ -28,7 +27,7 @@ description: 用于“读取论文 PDF 并输出/修改中文文献阅读 PPT”
 优先运行新的抽图脚本，它是当前 skill 的默认配图来源：
 
 ```bash
-python paperReading/scripts/extract_paper_fig.py "<paper.pdf>" "paper_assets/<pdf_stem>_figures" --dpi 180
+python "$env:USERPROFILE\.agents\skills\paperReading\scripts\extract_paper_fig.py" "<paper.pdf>" "paper_assets/<pdf_stem>_figures" --dpi 180
 ```
 
 输出结果：
@@ -74,6 +73,8 @@ python paperReading/scripts/build_paper_reading_ppt.py ^
 3. 下方约三分之二放配图区。
 4. 配图区优先放单独裁切的 Fig 或 Table 图片，不要直接放整页截图。
 5. 图多时优先 1 张大图或 2-3 张并排，尽量保证可读性。
+6. PPT 正文字号不得小于 16 pt，标题字号不得小于 18 pt；如果内容放不下，应压缩文字，不要降低到该字号以下。
+7. 文字行距固定为1.2倍行距。
 
 ## 文本风格
 
@@ -90,3 +91,4 @@ python paperReading/scripts/build_paper_reading_ppt.py ^
 5. 是否存在未经原文支持的推断或夸大。
 6. 首页是否使用标题/作者截图或等价的首页信息图。
 7. 最后一页是否同时包含总结和评价，并且评价有原文依据。
+8. 是否所有正文文本字号都不小于 16 pt，所有标题字号都不小于 18 pt。
